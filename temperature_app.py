@@ -3,33 +3,9 @@ import joblib
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
-import os
 
 # =====================================
-# PAGE CONFIG
-# =====================================
-st.set_page_config(layout="wide")
-
-# =====================================
-# SAFE FILE LOADING
-# =====================================
-def load_file_safe(filename):
-    if not os.path.exists(filename):
-        st.error(f"❌ File not found: {filename}")
-        st.write("Available files:", os.listdir())
-        st.stop()
-    return filename
-
-model_path = load_file_safe("temperature_forecast_model.pkl")
-features_path = load_file_safe("temperature_model_features.pkl")
-data_path = load_file_safe("temperature_data.csv")
-
-model = joblib.load(model_path)
-features = joblib.load(features_path)
-df = pd.read_csv(data_path, index_col=0, parse_dates=True)
-
-# =====================================
-# PLOT SETTINGS
+# PLOT FONT SETTINGS
 # =====================================
 plt.rcParams.update({
     'font.size': 12,
@@ -39,16 +15,30 @@ plt.rcParams.update({
 })
 
 # =====================================
+# PAGE CONFIG
+# =====================================
+st.set_page_config(layout="wide")
+
+# Background
+st.markdown("""
+    <style>
+    .stApp {
+        background-color: #f4f7fb;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+# =====================================
+# LOAD FILES
+# =====================================
+model = joblib.load("temperature_forecast_model.pkl")
+features = joblib.load("temperature_model_features.pkl")
+df = pd.read_csv("temperature_data.csv", index_col=0, parse_dates=True)
+
+# =====================================
 # FORECAST
 # =====================================
 last_row = df.iloc[-1]
-
-# Safe feature selection
-missing_features = [f for f in features if f not in df.columns]
-if missing_features:
-    st.error(f"Missing features: {missing_features}")
-    st.stop()
-
 X_last = last_row[features].values.reshape(1, -1)
 
 forecast_temp = model.predict(X_last)[0]
@@ -57,7 +47,7 @@ last_time = df.index[-1]
 next_time = last_time + pd.Timedelta(hours=1)
 
 # =====================================
-# HEAT INDEX
+# HEAT INDEX FUNCTION
 # =====================================
 def heat_index(T, RH):
     return (
@@ -79,15 +69,20 @@ if "Heat_Index" not in df.columns:
 st.markdown("# 🌡 HVAC STRESS – UPCOMING HOUR")
 
 # =====================================
-# INPUT
+# INPUT SECTION
 # =====================================
 col_l, col_m, col_r = st.columns([1,3,1])
 
 with col_m:
     st.markdown("### ⚙️ Configure Analysis")
 
+    location = st.selectbox(
+        "📍 Select Location",
+        ["Kochi", "Chennai", "Mumbai", "Delhi"]
+    )
+
     threshold_option = st.selectbox(
-        "🔥 Threshold Method",
+        "🔥 Select Threshold Method",
         [
             "Default (90th percentile)",
             "High Sensitivity (85th percentile)",
@@ -132,7 +127,7 @@ if run_button:
 
     col1, col2 = st.columns([2,1])
 
-    # LEFT PANEL
+    # ================= LEFT PANEL =================
     with col1:
         st.markdown("## 🌡 Forecast Heat Index (°C)")
         st.markdown(f"# {HI_forecast:.2f} °C")
@@ -146,9 +141,10 @@ if run_button:
 
         st.markdown(f"### Forecast Temperature: {forecast_temp:.2f} °C")
 
+        # ✅ SPACING FIX (THIS IS THE KEY CHANGE)
         st.markdown("<div style='margin-top: 70px;'></div>", unsafe_allow_html=True)
 
-    # 24H PLOT
+    # ================= 24H PLOT =================
     with col2:
         fig1, ax = plt.subplots(figsize=(6,3.8))
 
@@ -163,23 +159,35 @@ if run_button:
             linestyle="--"
         )
 
+        ax.annotate(
+            next_time.strftime('%d-%b %H:%M'),
+            (next_time, HI_forecast),
+            textcoords="offset points",
+            xytext=(0,18),
+            ha='center',
+            fontsize=9,
+            bbox=dict(facecolor='white', alpha=0.7, edgecolor='none')
+        )
+
         ax.set_xlim(df.index[-24], next_time + pd.Timedelta(hours=2))
         ax.xaxis.set_major_locator(mdates.HourLocator(interval=4))
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%d-%b\n%H:%M'))
 
         ax.set_title("24-Hour Heat Index + Forecast")
         ax.set_ylabel("Heat Index (°C)")
-        ax.legend()
+        ax.legend(loc="upper left")
         ax.grid(alpha=0.3)
 
         st.pyplot(fig1)
 
-    # 7 DAY PLOTS
+    # ================= 7 DAY HI =================
     fig2, ax2 = plt.subplots(figsize=(12,2.2))
+
     y_hi = df["Heat_Index"].iloc[-7*24:]
 
     ax2.plot(df.index[-7*24:], y_hi, label="Observed HI")
     ax2.axhline(HI_threshold, linestyle=":", label="Threshold")
+
     ax2.scatter(next_time, HI_forecast, s=60)
 
     ax2.plot(
@@ -188,16 +196,22 @@ if run_button:
         linestyle="--"
     )
 
+    ax2.set_ylim(y_hi.min()-1, y_hi.max()+1)
     ax2.set_title("7-Day Heat Index + Forecast")
-    ax2.legend()
+    ax2.legend(loc="upper left")
     ax2.grid(alpha=0.3)
+
+    plt.tight_layout()
     st.pyplot(fig2)
 
+    # ================= 7 DAY TEMP =================
     fig3, ax3 = plt.subplots(figsize=(12,2.2))
+
     y_temp = df["Temperature"].iloc[-7*24:]
 
     ax3.plot(df.index[-7*24:], y_temp, label="Observed Temp")
     ax3.axhline(TEMP_threshold, linestyle=":", label="Threshold")
+
     ax3.scatter(next_time, forecast_temp, s=60)
 
     ax3.plot(
@@ -206,7 +220,10 @@ if run_button:
         linestyle="--"
     )
 
+    ax3.set_ylim(y_temp.min()-1, y_temp.max()+1)
     ax3.set_title("7-Day Temperature + Forecast")
-    ax3.legend()
+    ax3.legend(loc="upper left")
     ax3.grid(alpha=0.3)
+
+    plt.tight_layout()
     st.pyplot(fig3)
